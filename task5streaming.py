@@ -69,7 +69,7 @@
 # Added by Lucky
 
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import split, col, window, count, sum as spark_sum
+from pyspark.sql.functions import split, col, window, count, sum as spark_sum, expr, lit
 
 # Initialize Spark Session
 spark = SparkSession.builder.appName("RealTimeTransactionMonitoring").getOrCreate()
@@ -84,13 +84,20 @@ lines = spark.readStream.format("socket").option("host", "localhost").option("po
 transactions = lines.withColumn("Timestamp", split(col("value"), ",").getItem(0)) \
                     .withColumn("Product", split(col("value"), ",").getItem(1)) \
                     .withColumn("Quantity", split(col("value"), ",").getItem(2).cast("int")) \
-                    .withColumn("Price", split(col("value"), ",").getItem(3).cast("float"))
+                    .withColumn("Price", split(col("value"), ",").getItem(3).cast("float")) \
+                    .withColumn("TotalSale", expr("Quantity * Price"))
 
 transactions.printSchema()
 #transactions.writeStream.outputMode("append").format("console").option("truncate", False).start()
 
+
 # Calculate running total sales per product
-running_sales = transactions.groupBy("Product").agg({"Quantity": "sum", "Price": "sum"})
+#running_sales = transactions.groupBy("Product").agg({"Quantity": "sum", "Price": "sum"})
+running_sales = transactions.groupBy("Product").agg(
+    spark_sum("Quantity").alias("TotalQuantity"),
+    spark_sum("Price").alias("TotalPrice"),
+    spark_sum("TotalSale").alias("TotalSales")
+)
 running_sales.printSchema()
 #running_sales = transactions.groupBy("Product").agg(
 #    spark_sum("Quantity").alias("TotalQuantity"), spark_sum("Price").alias("TotalPrice")
@@ -108,6 +115,7 @@ running_sales.printSchema()
 #     col("sum(Price)").alias("TotalSales")
 # )
 
+
 # Write results to SQLite database
 def write_to_db(df, epoch_id):
     print(f"Writing running_sales to database for epoch {epoch_id}")
@@ -116,25 +124,19 @@ def write_to_db(df, epoch_id):
     table_name = "running_sales"
 
     # # Write running sales
-    # df.write.format("jdbc") \
-    #     .option("url", db_url) \
-    #     .option("dbtable", table_name) \
-    #     .option("driver", "org.sqlite.JDBC") \
-    #     .mode("append") \
-    #     .save()
     try:
         # Show the DataFrame for debugging
-        df.show()
-        df.write.format("jdbc") \
-            .option("url", db_url) \
-            .option("dbtable", table_name) \
-            .option("driver", "org.sqlite.JDBC") \
-            .mode("append") \
-            .save()
-        print(f"Data written successfully to {table_name}")
+        if df.count() > 0:  # Prevent writing empty DataFrame
+            df.show()
+            df.write.format("jdbc") \
+                .option("url", db_url) \
+                .option("dbtable", table_name) \
+                .option("driver", "org.sqlite.JDBC") \
+                .mode("append") \
+                .save()
+            print(f"Data written successfully to {table_name}")
     except Exception as e:
         print(f"Error writing running_sales: {e}")
-
 
 
 # Identify anomalies: quantities > threshold or unusual prices
@@ -142,32 +144,50 @@ anomalies = transactions.filter((col("Quantity") > 60) | (col("Price") > 700))
 
 def write_anomalies_to_db(df, epoch_id):
     # Define database connection
+    print(f"Writing anomalies to database for epoch {epoch_id}")
     db_url = "jdbc:sqlite:/workspaces/Project-2-Retail-Sales-Analytics-and-Real-Time-Demand-Forecasting/retail_data.db"
     table_name = "anomalies"
+    
+    try:
+        if df.count() > 0:  # Prevent writing empty DataFrame
+            df.show()
+            df.write.format("jdbc") \
+                .option("url", db_url) \
+                .option("dbtable", table_name) \
+                .option("driver", "org.sqlite.JDBC") \
+                .mode("append") \
+                .save()
+            print(f"Anomalies written successfully to {table_name}")
+    except Exception as e:
+        print(f"Error writing anomalies: {e}")
 
-    # Write anomalies
-    df.write.format("jdbc") \
-        .option("url", db_url) \
-        .option("dbtable", table_name) \
-        .option("driver", "org.sqlite.JDBC") \
-        .mode("append") \
-        .save()
-        
+      
 running_sales.writeStream \
     .foreachBatch(write_to_db) \
     .outputMode("complete") \
     .start() \
-    .awaitTermination()        
+    .awaitTermination()
 
 anomalies.writeStream \
     .foreachBatch(write_anomalies_to_db) \
     .outputMode("append") \
     .start() \
     .awaitTermination()
-    
-# # Output running sales and anomalies
-# query1 = running_sales.writeStream.outputMode("complete").format("console").start()
-# query2 = anomalies.writeStream.outputMode("append").format("console").start()
 
-# query1.awaitTermination()
-# query2.awaitTermination()
+"""    
+# # Output running sales and anomalies
+# Start both streaming queries
+query1 = running_sales.writeStream \
+    .foreachBatch(write_to_db) \
+    .outputMode("complete") \
+    .start()
+
+query2 = anomalies.writeStream \
+    .foreachBatch(write_anomalies_to_db) \
+    .outputMode("append") \
+    .start()
+
+# Wait for both queries to terminate
+query1.awaitTermination()
+query2.awaitTermination()
+"""
