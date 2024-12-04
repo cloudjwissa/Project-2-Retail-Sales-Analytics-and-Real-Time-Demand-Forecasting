@@ -8,7 +8,7 @@ spark = SparkSession.builder.appName("RealTimeTransactionMonitoringAnomalies").g
 spark.sparkContext.setLogLevel("ERROR")
 
 # Read data from socket
-lines = spark.readStream.format("socket").option("host", "localhost").option("port", 9999).load()
+lines = spark.readStream.format("socket").option("host", "localhost").option("port", 9998).load()
 
 # Parse the incoming data
 transactions = lines.withColumn("Timestamp", split(col("value"), ",").getItem(0)) \

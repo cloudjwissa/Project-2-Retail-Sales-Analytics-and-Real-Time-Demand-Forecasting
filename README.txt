@@ -4,7 +4,7 @@ install the packages:
 pip install pyspark
 pip install dash
 
-1. Open a terminal and run python generate_retail.py to start the live data stream
+1. Open a terminal and run python generate_retail_two.py to start the live data stream
 
 2. Open a new terminal, while the streaming is happening, and run the file that calculates the running sales to be written in a database file, run this command:
 spark-submit --jars /workspaces/Project-2-Retail-Sales-Analytics-and-Real-Time-Demand-Forecasting/jars/sqlite-jdbc-3.47.1.0.jar task5_stream_running_sales.py
