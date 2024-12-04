@@ -33,7 +33,9 @@ def start_streaming(port1, port2):
 
     try:
         while True:
+            #start the data stream
             transaction_data = generate_transaction()
+            #send the stream to each port
             connection1.send((transaction_data + "\n").encode('utf-8'))
             connection2.send((transaction_data + "\n").encode('utf-8'))
             print(f"Sent: {transaction_data}")
